@@ -59,9 +59,10 @@ if v:version < 700
 endif
 
 " Create commands {{{2
-command! BufExplorer :call BufExplorer(has ("gui") ? "drop" : "hide edit")
+command! BufExplorer :call BufExplorer("e")
 command! BufExplorerHorizontalSplit :call BufExplorerHorizontalSplit()
 command! BufExplorerVerticalSplit :call BufExplorerVerticalSplit()
+command! BufExplorerSidebar :call BufExplorerSidebar()
 
 " Set {{{2
 function! s:Set(var, default)
@@ -86,6 +87,7 @@ let s:originBuffer = 0
 let s:running = 0
 let s:sort_by = ["number", "name", "fullpath", "mru", "extension"]
 let s:splitMode = ""
+let s:isKeepWindow = 0
 let s:tabSpace = []
 let s:types = {"fullname": ':p', "path": ':p:h', "relativename": ':~:.', "relativepath": ':~:.:h', "shortname": ':t'}
 
@@ -104,6 +106,7 @@ function! s:Setup()
         autocmd BufDelete * call s:DeactivateBuffer(0)
 
         autocmd BufWinEnter \[BufExplorer\] call s:Initialize()
+        autocmd WinEnter \[BufExplorer\] call s:Refresh()
         autocmd BufWinLeave \[BufExplorer\] call s:Cleanup()
 
         autocmd TabEnter * call s:TabEnter()
@@ -314,6 +317,7 @@ function! s:Cleanup()
 
     let s:running = 0
     let s:splitMode = ""
+    let s:isKeepWindow = 0
 
     delmarks!
 endfunction
@@ -321,13 +325,28 @@ endfunction
 " BufExplorerHorizontalSplit {{{2
 function! BufExplorerHorizontalSplit()
     let s:splitMode = "sp"
+    let s:isKeepWindow = 0
     exec "BufExplorer"
 endfunction
 
 " BufExplorerVerticalSplit {{{2
 function! BufExplorerVerticalSplit()
     let s:splitMode = "vsp"
+    let s:isKeepWindow = 0
     exec "BufExplorer"
+endfunction
+
+" BufExplorerSidebar {{{2
+function! BufExplorerSidebar()
+    let s:splitMode = "topleft 30vsplit"
+    let s:isKeepWindow = 1
+    exec "BufExplorer"
+endfunction
+
+" s:Refresh() {{{2
+function! s:Refresh()
+    silent let s:raw_buffer_listing = s:GetBufferInfo(0)
+    call s:RebuildBufferList()
 endfunction
 
 " BufExplorer {{{2
@@ -339,18 +358,22 @@ function! BufExplorer(open)
         let name = escape(name, "[]")
     endif
 
+    " Always update the buffer listing.
+    silent let s:raw_buffer_listing = s:GetBufferInfo(0)
+
     " Make sure there is only one explorer open at a time.
     if BufExplorer_IsRunning()
         " Go to the open buffer.
         execute bufwinnr(s:running) . 'wincmd w'
+
+        " And refresh it.
+        call s:RebuildBufferList()
 
         return
     endif
 
     " Add zero to ensure the variable is treated as a number.
     let s:originBuffer = bufnr("%") + 0
-
-    silent let s:raw_buffer_listing = s:GetBufferInfo(0)
 
     let buffer_listing_copy = copy(s:raw_buffer_listing)
 
@@ -421,8 +444,9 @@ function! s:MapKeys()
 
     nnoremap <script> <silent> <buffer> <2-leftmouse> :call <SID>SelectBuffer()<CR>
     nnoremap <script> <silent> <buffer> <CR>          :call <SID>SelectBuffer()<CR>
+    nnoremap <script> <silent> <buffer> <S-CR>        :call <SID>SelectBuffer("split")<cr>
+    nnoremap <script> <silent> <buffer> <C-CR>        :call <SID>SelectBuffer("only")<cr>
     nnoremap <script> <silent> <buffer> <F1>          :call <SID>ToggleHelp()<CR>
-    nnoremap <script> <silent> <buffer> <s-cr>        :call <SID>SelectBuffer("tab")<CR>
     nnoremap <script> <silent> <buffer> B             :call <SID>ToggleOnlyOneTab()<CR>
     nnoremap <script> <silent> <buffer> d             :call <SID>RemoveBuffer("delete")<CR>
     nnoremap <script> <silent> <buffer> D             :call <SID>RemoveBuffer("wipe")<CR>
@@ -438,6 +462,7 @@ function! s:MapKeys()
     nnoremap <script> <silent> <buffer> t             :call <SID>SelectBuffer("tab")<CR>
     nnoremap <script> <silent> <buffer> T             :call <SID>ToggleShowTabBuffer()<CR>
     nnoremap <script> <silent> <buffer> u             :call <SID>ToggleShowUnlisted()<CR>
+    nnoremap <script> <silent> <buffer> x             :call <SID>MaximizeWindow()<CR>
 
     for k in ["G", "n", "N", "L", "M", "H"]
         exec "nnoremap <buffer> <silent>" k ":keepjumps normal!" k."<CR>"
@@ -539,8 +564,10 @@ function! s:CreateHelp()
         call add(header, '" Buffer Explorer ('.g:bufexplorer_version.')')
         call add(header, '" --------------------------')
         call add(header, '" <F1> : toggle this help')
-        call add(header, '" <enter> or o or Mouse-Double-Click : open buffer under cursor')
-        call add(header, '" <shift-enter> or t : open buffer in another tab')
+        call add(header, '" <Enter> or o or Mouse-Double-Click : open buffer under cursor')
+        call add(header, '" <Shift-Enter> : split buffer')
+        call add(header, '" <Ctrl-Enter>  : only open this buffer, close all other windows')
+        call add(header, '" t : open buffer in another tab')
         call add(header, '" B : toggle if to save/use recent tab or not')
         call add(header, '" d : delete buffer')
         call add(header, '" D : wipe buffer')
@@ -553,6 +580,7 @@ function! s:CreateHelp()
         call add(header, '" S : reverse cycle thru "sort by" fields')
         call add(header, '" T : toggle if to show only buffers for this tab or not')
         call add(header, '" u : toggle showing unlisted buffers')
+        call add(header, '" x : toggle maximizing of this window')
     else
         call add(header, '" Press <F1> for Help')
     endif
@@ -710,7 +738,7 @@ function! s:SelectBuffer(...)
     endif
 
     if bufexists(_bufNbr)
-        if bufnr("#") == _bufNbr && !exists("g:bufExplorerChgWin")
+        if ! s:isKeepWindow && bufnr("#") == _bufNbr && !exists("g:bufExplorerChgWin")
             return s:Close()
         endif
 
@@ -718,8 +746,10 @@ function! s:SelectBuffer(...)
         if (a:0 == 1) && (a:1 == "tab")
             " Yes, we are to open the selected buffer in a tab.
 
-            " Restore [BufExplorer] buffer.
-            exec "keepjumps silent buffer!".s:originBuffer
+            if ! s:isKeepWindow
+                " Restore [BufExplorer] buffer.
+                exec "keepjumps silent buffer!".s:originBuffer
+            endif
 
             " Get the tab nmber where this bufer is located in.
             let tabNbr = s:GetTabNbr(_bufNbr)
@@ -742,25 +772,51 @@ function! s:SelectBuffer(...)
             if exists("g:bufExplorerChgWin")
                 exe g:bufExplorerChgWin."wincmd w"
             elseif bufloaded(_bufNbr) && g:bufExplorerFindActive
-                call s:Close()
-
-                " Get the tab number where this buffer is located in.
-                let tabNbr = s:GetTabNbr(_bufNbr)
-
-                " Was the tab found?
-                if tabNbr != 0
-                    " Yes, the buffer is located in a tab. Go to that tab number.
-                    exec tabNbr . "tabnext"
+                if s:isKeepWindow
+                    wincmd p
+                    if bufnr('') == s:running
+                        " Didn't work, we're still in the BufExplorer window.
+                        wincmd l
+                    endif
                 else
-                    "Nope, the buffer is not in a tab. Simply switch to that
-                    "buffer.
-                    let _bufName = expand("#"._bufNbr.":p")
-                    exec _bufName ? "drop ".escape(_bufName, " ") : "buffer "._bufNbr
+                    call s:Close()
+                endif
+
+                if (a:0 == 0) && bufwinnr(_bufNbr) == -1
+                    " Get the tab number where this buffer is located in.
+                    let tabNbr = s:GetTabNbr(_bufNbr)
+
+                    " Was the tab found?
+                    if tabNbr != 0
+                        " Yes, the buffer is located in a tab. Go to that tab number.
+                        exec tabNbr . "tabnext"
+                    endif
                 endif
             endif
+            if (a:0 == 1) && (a:1 == "split")
+                let save_switchbuf = &switchbuf
+                set switchbuf=
+                try
+                    exec "keepalt keepjumps silent sb" _bufNbr
+                finally
+                    let &switchbuf = save_switchbuf
+                endtry
+            else
+                " Switch to the buffer.
+                exec "keepalt keepjumps silent b!" _bufNbr
 
-            " Switch to the buffer.
-            exec "keepalt keepjumps silent b!" _bufNbr
+                if (a:0 == 1) && (a:1 == "only")
+                    " The temporary closing of the BufExplorer window performs a
+                    " cleanup of this variable.
+                    let save_isKeepWindow = s:isKeepWindow
+
+                    silent! only
+                    if save_isKeepWindow
+                        call BufExplorerSidebar()
+                        wincmd p
+                    endif
+                endif
+            endif
         endif
 
         " Make the buffer 'listed' again.
@@ -912,6 +968,29 @@ function! s:ToggleFindActive()
     call s:UpdateHelpStatus()
 endfunction
 
+" Maximize the BufExplorer window {{{2
+let s:win_maximized = 0
+function! s:MaximizeWindow()
+    if s:win_maximized
+        " Restore the window back to the previous size
+        if s:splitMode == "sp"
+            exe 'resize ' . 30
+        else
+            exe 'vert resize ' . 30
+        endif
+        let s:win_maximized = 0
+    else
+        " Set the window size to the maximum possible without closing other
+        " windows
+        if s:splitMode == "sp"
+            resize
+        else
+            vert resize
+        endif
+        let s:win_maximized = 1
+    endif
+endfunction
+
 " RebuildBufferList {{{2
 function! s:RebuildBufferList(...)
     setlocal modifiable
@@ -1032,9 +1111,9 @@ endfunction
 " GetTabNbr {{{2
 function! s:GetTabNbr(bufNbr)
     " Searching buffer bufno, in tabs.
-    for i in range(tabpagenr("$"))
-        if index(tabpagebuflist(i + 1), a:bufNbr) != -1
-            return i + 1
+    for i in filter(range(1, tabpagenr("$")), 'v:val != tabpagenr()')
+        if index(tabpagebuflist(i), a:bufNbr) != -1
+            return i
         endif
     endfor
 
