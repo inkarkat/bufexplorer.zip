@@ -440,6 +440,7 @@ function! s:MapKeys()
     nnoremap <script> <silent> <buffer> t             :call <SID>SelectBuffer("tab")<CR>
     nnoremap <script> <silent> <buffer> T             :call <SID>ToggleShowTabBuffer()<CR>
     nnoremap <script> <silent> <buffer> u             :call <SID>ToggleShowUnlisted()<CR>
+    nnoremap <script> <silent> <buffer> x             :call <SID>MaximizeWindow()<CR>
 
     for k in ["G", "n", "N", "L", "M", "H"]
         exec "nnoremap <buffer> <silent>" k ":keepjumps normal!" k."<CR>"
@@ -555,6 +556,7 @@ function! s:CreateHelp()
         call add(header, '" S : reverse cycle thru "sort by" fields')
         call add(header, '" T : toggle if to show only buffers for this tab or not')
         call add(header, '" u : toggle showing unlisted buffers')
+        call add(header, '" x : toggle maximizing of this window')
     else
         call add(header, '" Press <F1> for Help')
     endif
@@ -912,6 +914,29 @@ endfunction
 function! s:ToggleFindActive()
     let g:bufExplorerFindActive = !g:bufExplorerFindActive
     call s:UpdateHelpStatus()
+endfunction
+
+" Maximize the BufExplorer window {{{2
+let s:win_maximized = 0
+function! s:MaximizeWindow()
+    if s:win_maximized
+        " Restore the window back to the previous size
+        if s:splitMode == "sp"
+            exe 'resize ' . 30
+        else
+            exe 'vert resize ' . 30
+        endif
+        let s:win_maximized = 0
+    else
+        " Set the window size to the maximum possible without closing other
+        " windows
+        if s:splitMode == "sp"
+            resize
+        else
+            vert resize
+        endif
+        let s:win_maximized = 1
+    endif
 endfunction
 
 " RebuildBufferList {{{2
