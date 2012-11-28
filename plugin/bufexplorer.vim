@@ -287,7 +287,7 @@ function! s:Initialize()
 
     setlocal nobuflisted
 
-    let s:running = 1
+    let s:running = bufnr('')
 endfunction
 
 " Cleanup {{{2
@@ -340,11 +340,9 @@ function! BufExplorer(open)
     endif
 
     " Make sure there is only one explorer open at a time.
-    if s:running == 1
+    if BufExplorer_IsRunning()
         " Go to the open buffer.
-        if has("gui")
-            exec "drop" name
-        endif
+        execute bufwinnr(s:running) . 'wincmd w'
 
         return
     endif
@@ -1109,6 +1107,10 @@ function! BufExplorer_ReSize()
     let &scrolloff = _scr
 
     call setpos(".", pres)
+endfunction
+" Other Integrations {{{2
+function! BufExplorer_IsRunning()
+    return s:running && bufwinnr(s:running) != -1
 endfunction
 
 " Default key mapping {{{1
