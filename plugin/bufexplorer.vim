@@ -59,9 +59,10 @@ if v:version < 700
 endif
 
 " Create commands {{{2
-command! BufExplorer :call BufExplorer(has ("gui") ? "drop" : "hide edit")
+command! BufExplorer :call BufExplorer("e")
 command! BufExplorerHorizontalSplit :call BufExplorerHorizontalSplit()
 command! BufExplorerVerticalSplit :call BufExplorerVerticalSplit()
+command! BufExplorerSidebar :call BufExplorerSidebar()
 
 " Set {{{2
 function! s:Set(var, default)
@@ -86,6 +87,7 @@ let s:originBuffer = 0
 let s:running = 0
 let s:sort_by = ["number", "name", "fullpath", "mru", "extension"]
 let s:splitMode = ""
+let s:isKeepWindow = 0
 let s:tabSpace = []
 let s:types = {"fullname": ':p', "path": ':p:h', "relativename": ':~:.', "relativepath": ':~:.:h', "shortname": ':t'}
 
@@ -314,6 +316,7 @@ function! s:Cleanup()
 
     let s:running = 0
     let s:splitMode = ""
+    let s:isKeepWindow = 0
 
     delmarks!
 endfunction
@@ -321,12 +324,21 @@ endfunction
 " BufExplorerHorizontalSplit {{{2
 function! BufExplorerHorizontalSplit()
     let s:splitMode = "sp"
+    let s:isKeepWindow = 0
     exec "BufExplorer"
 endfunction
 
 " BufExplorerVerticalSplit {{{2
 function! BufExplorerVerticalSplit()
     let s:splitMode = "vsp"
+    let s:isKeepWindow = 0
+    exec "BufExplorer"
+endfunction
+
+" BufExplorerSidebar {{{2
+function! BufExplorerSidebar()
+    let s:splitMode = "topleft 30vsplit"
+    let s:isKeepWindow = 1
     exec "BufExplorer"
 endfunction
 
@@ -712,7 +724,7 @@ function! s:SelectBuffer(...)
     endif
 
     if bufexists(_bufNbr)
-        if bufnr("#") == _bufNbr && !exists("g:bufExplorerChgWin")
+        if ! s:isKeepWindow && bufnr("#") == _bufNbr && !exists("g:bufExplorerChgWin")
             return s:Close()
         endif
 
@@ -720,8 +732,10 @@ function! s:SelectBuffer(...)
         if (a:0 == 1) && (a:1 == "tab")
             " Yes, we are to open the selected buffer in a tab.
 
-            " Restore [BufExplorer] buffer.
-            exec "keepjumps silent buffer!".s:originBuffer
+            if ! s:isKeepWindow
+                " Restore [BufExplorer] buffer.
+                exec "keepjumps silent buffer!".s:originBuffer
+            endif
 
             " Get the tab nmber where this bufer is located in.
             let tabNbr = s:GetTabNbr(_bufNbr)
@@ -744,8 +758,27 @@ function! s:SelectBuffer(...)
             if exists("g:bufExplorerChgWin")
                 exe g:bufExplorerChgWin."wincmd w"
             elseif bufloaded(_bufNbr) && g:bufExplorerFindActive
-                call s:Close()
+                if s:isKeepWindow
+                    wincmd p
+                    if bufnr('') == s:running
+                        " Didn't work, we're still in the BufExplorer window.
+                        wincmd l
+                    endif
+                else
+                    call s:Close()
+                endif
 
+                if (a:0 == 0) && bufwinnr(_bufNbr) == -1
+                    " Get the tab number where this buffer is located in.
+                    let tabNbr = s:GetTabNbr(_bufNbr)
+
+                    " Was the tab found?
+                    if tabNbr != 0
+                        " Yes, the buffer is located in a tab. Go to that tab number.
+                        exec tabNbr . "tabnext"
+                    endif
+                endif
+            endif
                 " Get the tab number where this buffer is located in.
                 let tabNbr = s:GetTabNbr(_bufNbr)
 
