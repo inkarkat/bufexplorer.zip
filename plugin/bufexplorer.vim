@@ -104,6 +104,7 @@ function! s:Setup()
         autocmd BufDelete * call s:DeactivateBuffer(0)
 
         autocmd BufWinEnter \[BufExplorer\] call s:Initialize()
+        autocmd WinEnter \[BufExplorer\] call s:Refresh()
         autocmd BufWinLeave \[BufExplorer\] call s:Cleanup()
 
         autocmd TabEnter * call s:TabEnter()
@@ -330,6 +331,12 @@ function! BufExplorerVerticalSplit()
     exec "BufExplorer"
 endfunction
 
+" s:Refresh() {{{2
+function! s:Refresh()
+    silent let s:raw_buffer_listing = s:GetBufferInfo(0)
+    call s:RebuildBufferList()
+endfunction
+
 " BufExplorer {{{2
 function! BufExplorer(open)
     let name = s:name
@@ -339,6 +346,9 @@ function! BufExplorer(open)
         let name = escape(name, "[]")
     endif
 
+    " Always update the buffer listing.
+    silent let s:raw_buffer_listing = s:GetBufferInfo(0)
+
     " Make sure there is only one explorer open at a time.
     if s:running == 1
         " Go to the open buffer.
@@ -346,13 +356,14 @@ function! BufExplorer(open)
             exec "drop" name
         endif
 
+        " And refresh it.
+        call s:RebuildBufferList()
+
         return
     endif
 
     " Add zero to ensure the variable is treated as a number.
     let s:originBuffer = bufnr("%") + 0
-
-    silent let s:raw_buffer_listing = s:GetBufferInfo(0)
 
     let buffer_listing_copy = copy(s:raw_buffer_listing)
 
