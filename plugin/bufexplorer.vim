@@ -435,8 +435,9 @@ function! s:MapKeys()
 
     nnoremap <script> <silent> <buffer> <2-leftmouse> :call <SID>SelectBuffer()<CR>
     nnoremap <script> <silent> <buffer> <CR>          :call <SID>SelectBuffer()<CR>
+    nnoremap <script> <silent> <buffer> <S-CR>        :call <SID>SelectBuffer("split")<cr>
+    nnoremap <script> <silent> <buffer> <C-CR>        :call <SID>SelectBuffer("only")<cr>
     nnoremap <script> <silent> <buffer> <F1>          :call <SID>ToggleHelp()<CR>
-    nnoremap <script> <silent> <buffer> <s-cr>        :call <SID>SelectBuffer("tab")<CR>
     nnoremap <script> <silent> <buffer> B             :call <SID>ToggleOnlyOneTab()<CR>
     nnoremap <script> <silent> <buffer> d             :call <SID>RemoveBuffer("delete")<CR>
     nnoremap <script> <silent> <buffer> D             :call <SID>RemoveBuffer("wipe")<CR>
@@ -553,8 +554,10 @@ function! s:CreateHelp()
         call add(header, '" Buffer Explorer ('.g:bufexplorer_version.')')
         call add(header, '" --------------------------')
         call add(header, '" <F1> : toggle this help')
-        call add(header, '" <enter> or o or Mouse-Double-Click : open buffer under cursor')
-        call add(header, '" <shift-enter> or t : open buffer in another tab')
+        call add(header, '" <Enter> or o or Mouse-Double-Click : open buffer under cursor')
+        call add(header, '" <Shift-Enter> : split buffer')
+        call add(header, '" <Ctrl-Enter>  : only open this buffer, close all other windows')
+        call add(header, '" t : open buffer in another tab')
         call add(header, '" B : toggle if to save/use recent tab or not')
         call add(header, '" d : delete buffer')
         call add(header, '" D : wipe buffer')
@@ -779,23 +782,30 @@ function! s:SelectBuffer(...)
                     endif
                 endif
             endif
-                " Get the tab number where this buffer is located in.
-                let tabNbr = s:GetTabNbr(_bufNbr)
+            if (a:0 == 1) && (a:1 == "split")
+                let save_switchbuf = &switchbuf
+                set switchbuf=
+                try
+                    exec "keepalt keepjumps silent sb" _bufNbr
+                finally
+                    let &switchbuf = save_switchbuf
+                endtry
+            else
+                " Switch to the buffer.
+                exec "keepalt keepjumps silent b!" _bufNbr
 
-                " Was the tab found?
-                if tabNbr != 0
-                    " Yes, the buffer is located in a tab. Go to that tab number.
-                    exec tabNbr . "tabnext"
-                else
-                    "Nope, the buffer is not in a tab. Simply switch to that
-                    "buffer.
-                    let _bufName = expand("#"._bufNbr.":p")
-                    exec _bufName ? "drop ".escape(_bufName, " ") : "buffer "._bufNbr
+                if (a:0 == 1) && (a:1 == "only")
+                    " The temporary closing of the BufExplorer window performs a
+                    " cleanup of this variable.
+                    let save_isKeepWindow = s:isKeepWindow
+
+                    silent! only
+                    if save_isKeepWindow
+                        call BufExplorerSidebar()
+                        wincmd p
+                    endif
                 endif
             endif
-
-            " Switch to the buffer.
-            exec "keepalt keepjumps silent b!" _bufNbr
         endif
 
         " Make the buffer 'listed' again.
@@ -1067,9 +1077,9 @@ endfunction
 " GetTabNbr {{{2
 function! s:GetTabNbr(bufNbr)
     " Searching buffer bufno, in tabs.
-    for i in range(tabpagenr("$"))
-        if index(tabpagebuflist(i + 1), a:bufNbr) != -1
-            return i + 1
+    for i in filter(range(1, tabpagenr("$")), 'v:val != tabpagenr()')
+        if index(tabpagebuflist(i), a:bufNbr) != -1
+            return i
         endif
     endfor
 
